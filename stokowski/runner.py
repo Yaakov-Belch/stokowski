@@ -312,12 +312,14 @@ async def run_agent_turn(
     attempt.turn_count += 1
     attempt.last_event_at = datetime.now(timezone.utc)
     # Legacy multi-turn mode reuses this RunAttempt across iterations of the
-    # same loop; reset the in-band-failure flag so it can't carry over from a
-    # prior turn. The loop already breaks on any non-success status before
-    # looping back (see orchestrator.py's `if attempt.status != "succeeded":
-    # break`), so this can't fire today - it makes the invariant explicit
-    # instead of load-bearing-by-accident.
+    # same loop; reset the per-turn outcome fields alongside attempt.status
+    # above so neither can carry over from a prior turn. The loop already
+    # breaks on any non-success status before looping back (see
+    # orchestrator.py's `if attempt.status != "succeeded": break`), so this
+    # can't fire today - it makes the invariant explicit instead of
+    # load-bearing-by-accident.
     attempt.result_is_error = False
+    attempt.error = None
 
     try:
         proc = await asyncio.create_subprocess_exec(
