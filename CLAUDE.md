@@ -178,7 +178,12 @@ while running:
 ```
 
 **Dispatch logic:**
-1. Issues sorted by priority (lower = higher), then created_at, then identifier
+1. Issues sorted by priority via `_priority_dispatch_rank()`: Urgent (1) through Low (4)
+   ascending, then created_at, then identifier. Linear's `0` ("No priority") is a sentinel,
+   not a rank above Urgent — it sorts last, grouped with any other out-of-range or missing
+   value. `Issue.priority` is non-nullable on Linear's side, so a normally-fetched unset
+   priority arrives as `0`; `None` is only reached defensively, when `linear.py` fails to
+   parse the raw value as an int.
 2. `_is_eligible()` checks: valid fields, active state, not already running/claimed, blockers resolved
 3. Per-state concurrency limits checked against `max_concurrent_agents_by_state`
 4. `_dispatch()` creates a `RunAttempt`, adds to `self.running`, spawns `_run_worker` task
@@ -528,3 +533,9 @@ preference to anything installed, silently running old code against new config.
 - **Uvicorn signal handlers**: Must be monkey-patched (`server.install_signal_handlers = lambda: None`) before calling `serve()`, otherwise uvicorn hijacks SIGINT.
 - **workflow.yaml is pure YAML**: No markdown front matter. The legacy `.md` format with `---` delimiters is still supported but `.yaml` is the canonical format.
 - **Prompt files use Jinja2 with silent undefined**: Missing variables become empty strings rather than raising errors. This is intentional — not all variables are available in every context.
+- **Linear's `priority` integer is not a rank.** `0` means "No priority", not
+  "higher than Urgent (1)". Sorting the raw value ascending — as the dispatch
+  sort did until this was caught — puts unprioritised backlog issues ahead of
+  Urgent ones. `1-4` is genuinely ascending by urgency; `0` (and anything
+  outside `1-4`) has to be mapped to a rank *after* that bucket, not compared
+  to it directly. See `_priority_dispatch_rank()` in `orchestrator.py`.
