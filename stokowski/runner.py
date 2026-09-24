@@ -417,27 +417,26 @@ async def run_agent_turn(
     if attempt.status == "streaming":
         if proc.returncode == 0 and not attempt.result_is_error:
             attempt.status = "succeeded"
-        elif proc.returncode == 0:
-            # In-band failure: the CLI exited cleanly (e.g. error_max_turns)
-            # but the result event itself reported is_error=true. events.py
-            # already wrote a message on attempt.error - keep it rather than
-            # overwriting it with a misleading "Exit code 0" string.
-            attempt.status = "failed"
-            attempt.error = attempt.error or "Agent reported an in-band error"
         else:
-            stderr_output = ""
-            if proc.stderr:
-                try:
-                    stderr_bytes = await asyncio.wait_for(proc.stderr.read(), timeout=5)
-                    stderr_output = stderr_bytes.decode()[:500]
-                except (asyncio.TimeoutError, Exception):
-                    pass
             attempt.status = "failed"
-            # Same courtesy as the in-band branch above: if events.py already
-            # recorded a more specific reason (e.g. the process crashed after
-            # streaming an in-band error result), don't clobber it with the
-            # generic exit-code message.
-            attempt.error = attempt.error or f"Exit code {proc.returncode}: {stderr_output}"
+            if proc.returncode == 0:
+                # In-band failure: the CLI exited cleanly (e.g. error_max_turns)
+                # but the result event itself reported is_error=true. stderr is
+                # not worth reading here - a clean exit rarely has anything on it.
+                fallback_error = "Agent reported an in-band error"
+            else:
+                stderr_output = ""
+                if proc.stderr:
+                    try:
+                        stderr_bytes = await asyncio.wait_for(proc.stderr.read(), timeout=5)
+                        stderr_output = stderr_bytes.decode()[:500]
+                    except (asyncio.TimeoutError, Exception):
+                        pass
+                fallback_error = f"Exit code {proc.returncode}: {stderr_output}"
+            # events.py may already have recorded a more specific reason (an
+            # in-band error, possibly followed by the process itself dying) -
+            # keep it rather than overwriting it with a generic one.
+            attempt.error = attempt.error or fallback_error
 
     # Run after_run hook
     if hooks_cfg.after_run:
