@@ -181,11 +181,15 @@ claude:
 agent:
   max_concurrent_agents: 4
   max_retry_backoff_ms: 300000    # 5-minute cap on exponential backoff
+  # Keyed by Linear column name (trimmed + lowercased at parse time), NOT by
+  # the internal state names above — issue.state is what the dispatch loop
+  # compares against. Every agent state in this file maps to `active` (the
+  # single "In Progress" column below), so only one cap is expressible here;
+  # a per-stage limit (e.g. "1 concurrent code-review") cannot be, because
+  # investigate/ground-check/implement/code-review are indistinguishable once
+  # they land on the board.
   max_concurrent_agents_by_state:
-    investigate: 2                # allow 2 concurrent investigations
-    ground-check: 2               # short, cheap — should not become a queue
-    implement: 2
-    code-review: 1                # serial reviews prevent merge conflicts
+    in progress: 3                 # cap agents in the working column
 
 # ---------------------------------------------------------------------------
 # Prompts
