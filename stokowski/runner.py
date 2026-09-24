@@ -190,10 +190,12 @@ async def run_codex_turn(
         return output_lines
 
     async def stall_monitor():
+        # Only ever created when stall_timeout_s > 0 -- see below -- so a
+        # non-positive value never reaches this loop at all.
         while proc.returncode is None:
             await asyncio.sleep(min(stall_timeout_s / 4, 30))
             elapsed = loop.time() - last_activity
-            if stall_timeout_s > 0 and elapsed > stall_timeout_s:
+            if elapsed > stall_timeout_s:
                 logger.warning(
                     f"Codex stall detected issue={issue.identifier} "
                     f"elapsed={elapsed:.0f}s",
@@ -206,10 +208,16 @@ async def run_codex_turn(
 
     try:
         reader = asyncio.create_task(read_stream())
-        monitor = asyncio.create_task(stall_monitor())
+        # stall_timeout_ms <= 0 means "stall detection disabled" -- skip
+        # creating the monitor task entirely rather than starting a task
+        # whose sleep interval would collapse to asyncio.sleep(0) and spin
+        # the event loop for the life of the turn.
+        tasks = {reader}
+        if stall_timeout_s > 0:
+            tasks.add(asyncio.create_task(stall_monitor()))
 
         done, pending = await asyncio.wait(
-            {reader, monitor},
+            tasks,
             timeout=turn_timeout_s,
             return_when=asyncio.FIRST_COMPLETED,
         )
@@ -366,10 +374,12 @@ async def run_agent_turn(
             process_event(event, attempt, on_event, issue.identifier)
 
     async def stall_monitor():
+        # Only ever created when stall_timeout_s > 0 -- see below -- so a
+        # non-positive value never reaches this loop at all.
         while proc.returncode is None:
             await asyncio.sleep(min(stall_timeout_s / 4, 30))
             elapsed = loop.time() - last_activity
-            if stall_timeout_s > 0 and elapsed > stall_timeout_s:
+            if elapsed > stall_timeout_s:
                 logger.warning(
                     f"Stall detected issue={issue.identifier} "
                     f"elapsed={elapsed:.0f}s",
@@ -382,11 +392,17 @@ async def run_agent_turn(
 
     try:
         reader = asyncio.create_task(read_stream())
-        monitor = asyncio.create_task(stall_monitor())
+        # stall_timeout_ms <= 0 means "stall detection disabled" -- skip
+        # creating the monitor task entirely rather than starting a task
+        # whose sleep interval would collapse to asyncio.sleep(0) and spin
+        # the event loop for the life of the turn.
+        tasks = {reader}
+        if stall_timeout_s > 0:
+            tasks.add(asyncio.create_task(stall_monitor()))
 
         # Overall turn timeout
         done, pending = await asyncio.wait(
-            {reader, monitor},
+            tasks,
             timeout=turn_timeout_s,
             return_when=asyncio.FIRST_COMPLETED,
         )
