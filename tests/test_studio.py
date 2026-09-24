@@ -251,7 +251,12 @@ def test_describe_reports_the_pipeline(studio):
     gc = next(s for s in d["states"] if s["name"] == "ground-check")
     assert gc["session"] == "fresh"
     assert gc["transitions"]["complete"] == "research-review"
-    assert gc["concurrency"] == 2  # read from the by-state map
+    # The by-state map is keyed by Linear column name (YAA-6), not by the
+    # internal state name studio.py:149 looks up here, so a per-stage entry
+    # like this one never matches — that mismatch is exactly the bug the
+    # ticket fixed. The example's one cap key is `in progress`, which no
+    # state name equals, so every state reads back concurrency=None.
+    assert gc["concurrency"] is None
 
     gate = next(s for s in d["states"] if s["type"] == "gate")
     assert gate["rework_to"]

@@ -608,10 +608,11 @@ claude:
 agent:
   max_concurrent_agents: 3             # global concurrency cap (default: 5)
   max_retry_backoff_ms: 300000         # max retry delay (default: 5m)
-  max_concurrent_agents_by_state:      # optional per-state concurrency limits
-    investigate: 2
-    implement: 2
-    code-review: 1
+  max_concurrent_agents_by_state:      # optional caps, keyed by Linear column
+    in progress: 3                     # name (trimmed + lowercased at parse
+                                        # time) — NOT by the state names in
+                                        # `states:` below, since that is what
+                                        # `issue.state` actually holds
 
 prompts:
   global_prompt: prompts/global.md     # loaded for every agent turn (optional)

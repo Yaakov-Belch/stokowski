@@ -437,6 +437,45 @@ def _coerce_list(val: Any) -> list[str]:
     return []
 
 
+def _normalize_state_caps(raw: dict[str, Any] | None) -> dict[str, int]:
+    """Normalize `agent.max_concurrent_agents_by_state` for lookup.
+
+    The dispatch loop (orchestrator.py) compares against
+    `issue.state.strip().lower()` — the Linear column name, trimmed and
+    lowercased. Keys here must be normalized the same way at parse time, or a
+    correctly-spelled config entry silently never matches (that mismatch was
+    the entire bug in YAA-6).
+
+    Invalid entries (non-numeric, non-positive, bool, or non-integral float)
+    are dropped rather than raised: a bad value must stay inert, the same as
+    a key that never matches. Raising here would turn a single operator typo
+    into a config load failure that halts dispatch for the whole project.
+    """
+    out: dict[str, int] = {}
+    for key, value in (raw or {}).items():
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            logger.warning(
+                f"Ignoring max_concurrent_agents_by_state entry {key!r}: "
+                f"{value!r} is not a positive integer"
+            )
+            continue
+        if isinstance(value, float) and not value.is_integer():
+            logger.warning(
+                f"Ignoring max_concurrent_agents_by_state entry {key!r}: "
+                f"{value!r} is not a whole number"
+            )
+            continue
+        int_value = int(value)
+        if int_value <= 0:
+            logger.warning(
+                f"Ignoring max_concurrent_agents_by_state entry {key!r}: "
+                f"{int_value} is not positive"
+            )
+            continue
+        out[str(key).strip().lower()] = int_value
+    return out
+
+
 def global_prompt_paths(val: str | list[str] | None) -> list[str]:
     """Normalise `prompts.global_prompt` to an ordered list of paths.
 
@@ -778,7 +817,7 @@ def parse_workflow_file(path: str | Path) -> WorkflowDefinition:
     agent = AgentConfig(
         max_concurrent_agents=_coerce_int(a.get("max_concurrent_agents"), 5),
         max_retry_backoff_ms=_coerce_int(a.get("max_retry_backoff_ms"), 300_000),
-        max_concurrent_agents_by_state=a.get("max_concurrent_agents_by_state") or {},
+        max_concurrent_agents_by_state=_normalize_state_caps(a.get("max_concurrent_agents_by_state")),
         max_concurrent_per_project=a.get("max_concurrent_per_project") or {},
     )
     s = config_raw.get("server", {}) or {}
