@@ -414,7 +414,9 @@ Three things about this shape bite repeatedly:
 
 Exit code 0 = success, non-zero = failure (stderr captured). Note that
 `is_error: true` on a `result` event (e.g. `error_max_turns`) still exits 0, so
-the exit code alone is not sufficient.
+the exit code alone is not sufficient. `runner.py`'s final-status decision
+enforces this: it requires both `proc.returncode == 0` and
+`not attempt.result_is_error` before calling a turn `succeeded`.
 
 ---
 
@@ -521,6 +523,15 @@ preference to anything installed, silently running old code against new config.
   for a reason that did not apply.
 - **`--resume` needs a session id captured from `system/init`.** Reading it
   only from `result` loses the session on any turn that stalls or times out.
+- **A producer with no consumer is a bug waiting six months to be found.**
+  `events.py` set `attempt.result_is_error` from the day it was added
+  (2026-08-31, PR #43), but `runner.py`'s final-status decision read only
+  `proc.returncode` until this was fixed (YAA-7) — so an in-band failure with
+  a clean exit (`error_max_turns`) was reported and acted on as `succeeded`,
+  advancing the state machine on unfinished work. Nothing caught it because
+  nothing exercised the decision: the field's own test asserted it was
+  *recorded*, not that anything *acted on* it. When you add a field like this,
+  grep for who reads it before you call the work done.
 - **`tty.setraw` vs `tty.setcbreak`**: Don't switch back to `setraw`. It disables `OPOST` output processing and causes Rich log lines to render diagonally (no carriage return on newlines).
 - **`Issue(title=...)` is required**: Minimal Issue constructors (in `linear.py` `fetch_issues_by_states` and the `orchestrator.py` state-check default) must pass `title=""` — it's a required positional field.
 - **`--verbose` with stream-json**: Claude Code requires `--verbose` when using `--output-format stream-json`. Without it you get an error.

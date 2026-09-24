@@ -120,6 +120,11 @@ async def run_codex_turn(
 
     Codex doesn't support session resumption or stream-json output.
     We capture stdout/stderr and use exit code for status.
+
+    This path never calls process_event, so attempt.result_is_error is
+    structurally always False here - exit code really is the only signal
+    Codex gives us. Not a sibling of the in-band-failure bug fixed in the
+    Claude path below (YAA-7); leave the exit-code-only check as is.
     """
     args = build_codex_args(model, prompt, workspace_path)
 
@@ -306,6 +311,13 @@ async def run_agent_turn(
     attempt.started_at = attempt.started_at or datetime.now(timezone.utc)
     attempt.turn_count += 1
     attempt.last_event_at = datetime.now(timezone.utc)
+    # Legacy multi-turn mode reuses this RunAttempt across iterations of the
+    # same loop; reset the in-band-failure flag so it can't carry over from a
+    # prior turn. The loop already breaks on any non-success status before
+    # looping back (see orchestrator.py's `if attempt.status != "succeeded":
+    # break`), so this can't fire today - it makes the invariant explicit
+    # instead of load-bearing-by-accident.
+    attempt.result_is_error = False
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -403,8 +415,15 @@ async def run_agent_turn(
 
     # Determine final status from exit code if not already set by stall/timeout
     if attempt.status == "streaming":
-        if proc.returncode == 0:
+        if proc.returncode == 0 and not attempt.result_is_error:
             attempt.status = "succeeded"
+        elif proc.returncode == 0:
+            # In-band failure: the CLI exited cleanly (e.g. error_max_turns)
+            # but the result event itself reported is_error=true. events.py
+            # already wrote a message on attempt.error - keep it rather than
+            # overwriting it with a misleading "Exit code 0" string.
+            attempt.status = "failed"
+            attempt.error = attempt.error or "Agent reported an in-band error"
         else:
             stderr_output = ""
             if proc.stderr:
@@ -414,7 +433,11 @@ async def run_agent_turn(
                 except (asyncio.TimeoutError, Exception):
                     pass
             attempt.status = "failed"
-            attempt.error = f"Exit code {proc.returncode}: {stderr_output}"
+            # Same courtesy as the in-band branch above: if events.py already
+            # recorded a more specific reason (e.g. the process crashed after
+            # streaming an in-band error result), don't clobber it with the
+            # generic exit-code message.
+            attempt.error = attempt.error or f"Exit code {proc.returncode}: {stderr_output}"
 
     # Run after_run hook
     if hooks_cfg.after_run:
