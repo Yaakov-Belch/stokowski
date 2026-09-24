@@ -601,7 +601,7 @@ claude:
   model: claude-sonnet-4-6             # optional model override
   max_turns: 20                         # max turns before giving up
   turn_timeout_ms: 3600000             # per-turn wall-clock timeout (default: 1h)
-  stall_timeout_ms: 300000             # kill agent if silent for this long (default: 5m)
+  stall_timeout_ms: 300000             # kill agent if silent for this long (default: 5m; 0 or negative disables stall detection)
   append_system_prompt: |              # extra text appended to every agent's system prompt
     Always write tests for new code.
 
@@ -698,7 +698,7 @@ Each state can override these fields from the root `claude` / `hooks` defaults. 
 | `model` | root `claude.model` | Model override for this state |
 | `max_turns` | root `claude.max_turns` | Max turns for this state |
 | `turn_timeout_ms` | root value | Per-turn timeout |
-| `stall_timeout_ms` | root value | Stall detection timeout |
+| `stall_timeout_ms` | root value | Stall detection timeout (0 or negative disables it) |
 | `session` | `inherit` | `inherit` (resume prior session) or `fresh` (new session, no prior context) |
 | `permission_mode` | root value | Permission mode override |
 | `allowed_tools` | root value | Tool whitelist override |

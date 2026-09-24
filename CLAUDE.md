@@ -202,7 +202,7 @@ while running:
 
 **PID tracking:** `on_pid` callback registers/unregisters child PIDs with the orchestrator for clean shutdown.
 
-**Stall detection:** background `stall_monitor()` task checks time since last output. Kills process if `stall_timeout_ms` exceeded.
+**Stall detection:** background `stall_monitor()` task checks time since last output. Kills process if `stall_timeout_ms` exceeded. The monitor task is only created when `stall_timeout_ms > 0` — a non-positive value disables stall detection entirely rather than running a monitor that can never fire. (Skipping task creation, not flooring the sleep interval, is the fix: a positive value was never observed to busy-loop, since the monitor's own kill branch returns well before the interval could matter.)
 
 **Turn timeout:** `asyncio.wait()` with `turn_timeout_ms` as overall deadline.
 
@@ -550,3 +550,4 @@ preference to anything installed, silently running old code against new config.
   Urgent ones. `1-4` is genuinely ascending by urgency; `0` (and anything
   outside `1-4`) has to be mapped to a rank *after* that bucket, not compared
   to it directly. See `_priority_dispatch_rank()` in `orchestrator.py`.
+- **A `min()` ceiling with no floor is a divide-by-proximity-to-zero bug**: `stall_monitor()`'s poll interval was `min(stall_timeout_s / 4, 30)` — a ceiling on the *high* end but nothing stopping the *low* end from reaching `asyncio.sleep(0)`, which CPython resolves to a bare yield with no timer, busy-looping the event loop for the life of the turn when `stall_timeout_ms <= 0` (the documented way to disable stall detection). The fix is to skip creating the monitor task when the timeout is non-positive, not to floor the interval — a positive value never actually busy-loops, because the monitor's own kill branch returns well before the interval matters. Before trusting a "the boundary is continuous" argument for a fix like this, re-derive the numbers against the real function, not a standalone reimplementation of the loop's arithmetic that drops its exit path.
