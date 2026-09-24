@@ -40,6 +40,26 @@ from .workspace import ensure_workspace, remove_workspace
 logger = logging.getLogger("stokowski")
 
 
+def _priority_dispatch_rank(priority: int | None) -> int:
+    """Map a Linear priority to its dispatch sort rank.
+
+    Linear's `priority` is 1=Urgent .. 4=Low, genuinely ascending in
+    decreasing urgency. `0` is not a rank — it is Linear's sentinel for
+    "No priority" — and `Issue.priority` is non-nullable on Linear's side, so
+    a normally-fetched unset priority arrives as `0`, not `None`. Sorting the
+    raw integer ascending therefore puts unprioritised work ahead of Urgent.
+    (`linear.py` does fall back to `None` if it cannot parse the raw value as
+    an int, so `None` is still reachable here defensively.)
+
+    Per Symphony spec 8.2, priorities 1-4 sort ascending and everything
+    else - 0, None, and any out-of-range value - sorts after that bucket as
+    a group.
+    """
+    if priority is not None and 1 <= priority <= 4:
+        return priority
+    return 5
+
+
 class Orchestrator:
     def __init__(
         self,
@@ -978,7 +998,7 @@ class Orchestrator:
         # Part 4: Sort by priority
         candidates.sort(
             key=lambda i: (
-                i.priority if i.priority is not None else 999,
+                _priority_dispatch_rank(i.priority),
                 i.created_at or datetime.min.replace(tzinfo=timezone.utc),
                 i.identifier,
             )
