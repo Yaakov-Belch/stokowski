@@ -179,11 +179,14 @@ while running:
 
 **Dispatch logic:**
 1. Issues sorted by priority via `_priority_dispatch_rank()`: Urgent (1) through Low (4)
-   ascending, then created_at, then identifier. Linear's `0` ("No priority") is a sentinel,
-   not a rank above Urgent — it sorts last, grouped with any other out-of-range or missing
-   value. `Issue.priority` is non-nullable on Linear's side, so a normally-fetched unset
-   priority arrives as `0`; `None` is only reached defensively, when `linear.py` fails to
-   parse the raw value as an int.
+   ascending, then created_at via `_created_at_dispatch_key()`, then identifier. Linear's
+   `0` ("No priority") is a sentinel, not a rank above Urgent — it sorts last, grouped with
+   any other out-of-range or missing value. `Issue.priority` is non-nullable on Linear's
+   side, so a normally-fetched unset priority arrives as `0`; `None` is only reached
+   defensively, when `linear.py` fails to parse the raw value as an int. A missing
+   `created_at` sorts last the same way — `_created_at_dispatch_key()` falls back to
+   `datetime.max`, not `datetime.min`, so an undated issue never outranks a dated one in
+   its priority bucket. `Issue.created_at` is likewise reached as `None` only defensively.
 2. `_is_eligible()` checks: valid fields, active state, not already running/claimed, blockers resolved
 3. Per-state concurrency limits checked against `max_concurrent_agents_by_state`
 4. `_dispatch()` creates a `RunAttempt`, adds to `self.running`, spawns `_run_worker` task
@@ -551,3 +554,4 @@ preference to anything installed, silently running old code against new config.
   outside `1-4`) has to be mapped to a rank *after* that bucket, not compared
   to it directly. See `_priority_dispatch_rank()` in `orchestrator.py`.
 - **A `min()` ceiling with no floor is a divide-by-proximity-to-zero bug**: `stall_monitor()`'s poll interval was `min(stall_timeout_s / 4, 30)` — a ceiling on the *high* end but nothing stopping the *low* end from reaching `asyncio.sleep(0)`, which CPython resolves to a bare yield with no timer, busy-looping the event loop for the life of the turn when `stall_timeout_ms <= 0` (the documented way to disable stall detection). The fix is to skip creating the monitor task when the timeout is non-positive, not to floor the interval — a positive value never actually busy-loops, because the monitor's own kill branch returns well before the interval matters. Before trusting a "the boundary is continuous" argument for a fix like this, re-derive the numbers against the real function, not a standalone reimplementation of the loop's arithmetic that drops its exit path.
+- **An unknown sort value must sort after known ones — for `created_at` as well as `priority`.** The dispatch sort's fallback for a missing `created_at` was `datetime.min`, the smallest representable timestamp, so within a priority bucket an undated issue outranked every dated one instead of falling to the back of the line — the identical mistake `_priority_dispatch_rank()` already guards against one tuple element over, just with the opposite-polarity sentinel. Fixed by extracting the element into `_created_at_dispatch_key()` (`orchestrator.py`, mirroring `_priority_dispatch_rank()`) so callers — including tests — call the real function instead of retyping the comparator; a retyped copy is exactly what let a reproduction test assert the bug as intended behaviour for a full stage of this ticket before it was caught. `Issue.created_at` is nullable on the model but Linear's `Issue.createdAt` is `DateTime!` on the wire (confirmed by GraphQL schema introspection), so this path is latent-but-real: reachable only when `linear.py:_parse_datetime` fails to parse a malformed or missing value, never on a well-formed response.

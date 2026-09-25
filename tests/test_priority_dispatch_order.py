@@ -42,7 +42,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from stokowski.models import Issue
-from stokowski.orchestrator import Orchestrator, _priority_dispatch_rank
+from stokowski.orchestrator import Orchestrator, _created_at_dispatch_key, _priority_dispatch_rank
 
 REPO = Path(__file__).resolve().parent.parent
 EXAMPLE_WORKFLOW = REPO / "workflow.example.yaml"
@@ -114,7 +114,7 @@ def test_sort_key_ranks_urgent_above_no_priority():
     candidates.sort(
         key=lambda i: (
             _priority_dispatch_rank(i.priority),
-            i.created_at or datetime.min.replace(tzinfo=timezone.utc),
+            _created_at_dispatch_key(i.created_at),
             i.identifier,
         )
     )
@@ -140,7 +140,7 @@ def test_full_priority_rank_order():
     candidates.sort(
         key=lambda i: (
             _priority_dispatch_rank(i.priority),
-            i.created_at or datetime.min.replace(tzinfo=timezone.utc),
+            _created_at_dispatch_key(i.created_at),
             i.identifier,
         )
     )
