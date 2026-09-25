@@ -60,6 +60,30 @@ def _priority_dispatch_rank(priority: int | None) -> int:
     return 5
 
 
+def _created_at_dispatch_key(created_at: datetime | None) -> datetime:
+    """Map a Linear `created_at` to its dispatch sort key.
+
+    Ascending on this key is FIFO within a priority bucket: the ticket that
+    has waited longest goes first. A missing `created_at` must sort *after*
+    every real timestamp, not before it, per Symphony spec 8.2 clause 2:
+    "`created_at` oldest first; null sorts last" — the same "unknown must not
+    outrank known" rule `_priority_dispatch_rank()` already implements for
+    the adjacent tuple element.
+
+    `created_at` is nullable on the model (`Issue.created_at: datetime |
+    None`), but Linear's `Issue.createdAt` is `DateTime!` (non-nullable) on
+    the wire, so `None` here only happens defensively — when
+    `linear.py:_parse_datetime` fails to parse a malformed or missing value.
+    A well-formed Linear response never reaches the fallback.
+
+    `datetime.max` is the sentinel rather than `datetime.min`: the latter
+    made a missing timestamp sort as *infinitely old*, so an undated issue
+    jumped the queue ahead of every dated one in its bucket instead of
+    falling to the back of the line behind them.
+    """
+    return created_at or datetime.max.replace(tzinfo=timezone.utc)
+
+
 class Orchestrator:
     def __init__(
         self,
@@ -999,7 +1023,7 @@ class Orchestrator:
         candidates.sort(
             key=lambda i: (
                 _priority_dispatch_rank(i.priority),
-                i.created_at or datetime.min.replace(tzinfo=timezone.utc),
+                _created_at_dispatch_key(i.created_at),
                 i.identifier,
             )
         )
